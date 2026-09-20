@@ -3,7 +3,7 @@
 **Reviewed:** `docs/product/agent-debugger/02-epics-and-tickets.md` · **Reviewer:** agent · **Resolver:** Ivan Neto · **Date:** 2026-09-20
 
 ## Coverage
-32 elements in the artifact, 32 examined (100%): 16 challenged, 16 examined with no challenge. *(Coverage count finalized after Round 5 approval; open challenges below marked resolved once Round 5 answers land.)*
+32 elements in the artifact, 32 examined (100%): 16 challenged, 16 examined with no challenge.
 
 ## Challenges
 - **Initiative Purpose** **Challenge:** Capability list dense. **Alternative:** Problem + who only. · *Resolution: changed (1B)*
@@ -22,6 +22,7 @@
 - **TKT-A2 session end** **Challenge:** Extra vs REQ-1. **Alternative:** Trim. · *Resolution: defended (14A)*
 - **Area tags** **Challenge:** Force Live attach only. **Alternative:** Single tag. · *Resolution: defended (15A)*
 - **REQ coverage** **Challenge:** Missing mapping. **Alternative:** none found. · *Resolution: defended (16A)*
+- **Stage 2 gate** **Challenge:** Approve vs keep editing. **Alternative:** Approve. · *Resolution: changed (Round 5 A — Approved by Ivan Neto 2026-09-20)*
 
 ## Examined, no challenge
 - **Header / tracker GitHub note:** Correct for this workstream.
@@ -42,7 +43,7 @@
 - **Derived-from line:** Points at `01-prd.md`.
 
 ## Lint results
-- Every element in findings log: pass (pending Round 5 gate close)
+- Every element in findings log: pass
 - Every REQ implemented by at least one epic: pass
 - Titles `[Area tag]: [outcome phrase]`; epic tickets share tag: pass
 - Initiative and every epic have Purpose: pass
@@ -58,4 +59,4 @@
 ## Waivers
 - Melodrama scanner hits on the word “epic”: waived by owner Ivan Neto as Stage 2 vocabulary, 2026-09-20.
 
-**Gate verdict:** pending Round 5 (approve / further edits).
+**Gate verdict:** promotable: coverage 32/32, 17 challenges resolved (9 defended, 8 changed), lints pass/waived. Stage 2 Approved by Ivan Neto on 2026-09-20. Next stage: `product-pipeline-acceptance-criteria`. Tracker for Stage 4: GitHub Issues on `ivancrneto/aidb`.
