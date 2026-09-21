@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+import json
+import socket
+from typing import Any
+
+
+def send_command(
+    op: str,
+    *,
+    host: str = "127.0.0.1",
+    port: int,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    payload = (json.dumps({"op": op}) + "\n").encode("utf-8")
+    with socket.create_connection((host, port), timeout=timeout) as conn:
+        conn.sendall(payload)
+        buffer = b""
+        while b"\n" not in buffer:
+            chunk = conn.recv(4096)
+            if not chunk:
+                raise ConnectionError("control server closed without a response")
+            buffer += chunk
+        line = buffer.split(b"\n", 1)[0].decode("utf-8")
+    response = json.loads(line)
+    if not isinstance(response, dict):
+        raise ValueError("control server returned a non-object response")
+    return response

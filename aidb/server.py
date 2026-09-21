@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import json
+import socket
+import threading
+from dataclasses import dataclass
+from typing import Callable
+
+from aidb.session import DebugSession
+
+Handler = Callable[[dict], dict]
+
+
+@dataclass(frozen=True)
+class BoundServer:
+    host: str
+    port: int
+    stop: Callable[[], None]
+
+
+def handle_command(session: DebugSession, request: dict) -> dict:
+    op = str(request.get("op") or "").strip().lower()
+    if op == "halt":
+        session.halt()
+    elif op in {"continue", "cont"}:
+        session.continue_run()
+    elif op == "end":
+        session.end()
+    elif op == "status":
+        pass
+    else:
+        return {"ok": False, "error": f"unknown op: {op}", "state": session.state}
+    return {"ok": True, "state": session.state}
+
+
+def start_control_server(
+    session: DebugSession,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 0,
+) -> BoundServer:
+    """Serve JSON-line halt/continue/end/status commands on a localhost TCP port."""
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("debug control server must bind to localhost only")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.listen(8)
+    sock.settimeout(0.5)
+    bound_host, bound_port = sock.getsockname()[:2]
+
+    stop_flag = threading.Event()
+
+    def serve() -> None:
+        while not stop_flag.is_set():
+            try:
+                conn, _addr = sock.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with conn:
+                conn.settimeout(5.0)
+                buffer = b""
+                while not stop_flag.is_set():
+                    try:
+                        chunk = conn.recv(4096)
+                    except socket.timeout:
+                        break
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        raw, buffer = buffer.split(b"\n", 1)
+                        line = raw.decode("utf-8").strip()
+                        if not line:
+                            continue
+                        try:
+                            request = json.loads(line)
+                        except json.JSONDecodeError:
+                            response = {"ok": False, "error": "invalid json", "state": session.state}
+                        else:
+                            if not isinstance(request, dict):
+                                response = {
+                                    "ok": False,
+                                    "error": "request must be an object",
+                                    "state": session.state,
+                                }
+                            else:
+                                response = handle_command(session, request)
+                        conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+
+    thread = threading.Thread(target=serve, name="aidb-control-server", daemon=True)
+    thread.start()
+
+    def stop() -> None:
+        stop_flag.set()
+        try:
+            sock.close()
+        except OSError:
+            pass
+        thread.join(timeout=2.0)
+
+    return BoundServer(host=bound_host, port=int(bound_port), stop=stop)
