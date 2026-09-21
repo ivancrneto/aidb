@@ -8,6 +8,11 @@ from samples.refund_desk.runtime import RefundDeskRuntime, RunResult
 
 DEFAULT_MESSAGE = "Please refund ORD-1001. The headphones arrived broken."
 
+ORDER_MESSAGES = {
+    "ORD-1001": DEFAULT_MESSAGE,
+    "ORD-2099": "Please refund ORD-2099. The camera arrived late.",
+}
+
 
 def run_refund_desk(
     user_message: str = DEFAULT_MESSAGE,
@@ -51,7 +56,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def message_for_args(message: str, order_id: str | None) -> str:
+    if order_id and message == DEFAULT_MESSAGE:
+        return ORDER_MESSAGES.get(order_id, f"Please refund {order_id}.")
+    return message
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    run_refund_desk(args.message, order_id=args.order_id, fmt=args.fmt)
+    run_refund_desk(
+        message_for_args(args.message, args.order_id),
+        order_id=args.order_id,
+        fmt=args.fmt,
+    )
     return 0

@@ -82,6 +82,19 @@ def test_cli_prints_reply_and_handoff_without_debugger_ui() -> None:
     assert result.of_kind("handoff")
 
 
+def test_order_flag_uses_matching_default_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    printed = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", printed)
+
+    assert main(["--order", "ORD-2099"]) == 0
+    output = printed.getvalue()
+    assert "order=ORD-2099" in output
+    assert "Please refund ORD-2099. The camera arrived late." in output
+    assert "ORD-1001" not in output
+    assert "[model_reply]" in output
+    assert "[handoff]" in output
+
+
 def test_main_exits_zero_and_does_not_bind_a_port(monkeypatch: pytest.MonkeyPatch) -> None:
     printed = io.StringIO()
     monkeypatch.setattr(sys, "stdout", printed)
