@@ -1,15 +1,15 @@
 # Idea: Agent debugger (live attach)
 
-**Logged by:** Ivan Neto · **Date:** 2026-09-20 · **Status:** New
+**Logged by:** Ivan Neto · **Date:** 2026-09-20 · **Status:** Promoted
 
 ## One-liner
-Developers debugging multi-agent apps can attach to a live run. They can stop on a model reply or control transfer, edit that value, and resume the same run.
+Developers debugging multi-agent apps can attach to a live run, stop on a model reply or a handoff (tool or agent), edit that value, and resume the same run.
 
 ## Trigger
-Internal pain first: the team lacks a pdb-style debugger while building multi-agent apps, and the market mostly offers post-run traces. Secondary bet: open-source the same runtime so others can plug it in, with IDE and CLI clients later.
+Internal pain first: the team lacks a pdb-style debugger while building multi-agent apps, and the market mostly offers post-run traces. Secondary bet: open-source the same runtime so others can plug it in.
 
 ## Problem
-Developers iterating on multi-agent prompts and behavior cannot stop a live run at a bad model reply or a bad handoff (including when a tool owns the next chunk of work), rewrite that value, and continue. They rely on finished traces, approval pauses, or replaying an earlier tape, none of which support live step, enter, and edit-and-resume on the current attempt in local and lower environments with mocked side effects.
+Developers iterating on multi-agent prompts and behavior cannot stop a live run at a bad model reply or a bad handoff. That includes when a tool owns the next chunk of work. They cannot rewrite that value and continue. They rely on finished traces, approval pauses, or replaying an earlier tape. None of those support live step, enter, and edit-and-resume on the current attempt in local and lower environments with mocked side effects.
 
 ## Who is affected
 Primary: the team's developers who debug multi-agent apps in local and lower environments. Secondary: external developers who adopt the open-source runtime once published. Future IDE and CLI clients (VS Code, PyCharm, Cursor, Claude Code, and similar) serve those same users; they are not a separate persona for intake.
@@ -18,7 +18,7 @@ Primary: the team's developers who debug multi-agent apps in local and lower env
 The team is already building multi-agent apps and burning time without a live debugger. This session's market survey found no shipped pdb-equivalent for live attach outside LangGraph Studio's graph-node model.
 
 ## Rough size
-XL. Reasoning: v1 needs a control-transfer runtime with edit-and-resume plus one thin client for the team. It also needs an open-source plug-in path, and a stated path to IDE and CLI clients even if those adapters ship later.
+L for the first milestone (attach runtime, edit-and-resume, one thin client for the team, open-source plug-in path). XL if the workstream includes IDE and CLI adapters in the same initiative.
 
 ## Related context
 - Brainstorm locked in session 2026-09-20 (attach to app process; control transfer = model reply, tool, agent handoff; edit-and-resume; traces and record-replay later).
@@ -26,5 +26,5 @@ XL. Reasoning: v1 needs a control-transfer runtime with edit-and-resume plus one
 - Closest analogs researched: LangGraph Studio, AGDebugger (CHI 2025), AgentStepper (2026).
 
 ## Decision needed
-[ ] Promote to PRD   [ ] Park   [ ] Merge into existing workstream: ______
-**Decided by / on:** ______
+[x] Promote to PRD   [ ] Park   [ ] Merge into existing workstream: ______
+**Decided by / on:** Ivan Neto / 2026-09-20
