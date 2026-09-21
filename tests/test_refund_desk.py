@@ -95,6 +95,19 @@ def test_order_flag_uses_matching_default_message(monkeypatch: pytest.MonkeyPatc
     assert "[handoff]" in output
 
 
+def test_explicit_message_keeps_text_when_order_also_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    printed = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", printed)
+    explicit = "Please refund ORD-1001. The headphones arrived broken."
+
+    assert main(["--order", "ORD-2099", "--message", explicit]) == 0
+    output = printed.getvalue()
+    assert explicit in output
+    assert "The camera arrived late." not in output
+
+
 def test_main_exits_zero_and_does_not_bind_a_port(monkeypatch: pytest.MonkeyPatch) -> None:
     printed = io.StringIO()
     monkeypatch.setattr(sys, "stdout", printed)

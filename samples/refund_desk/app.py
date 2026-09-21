@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--message",
-        default=DEFAULT_MESSAGE,
+        default=None,
         help="Customer request for the intake agent",
     )
     parser.add_argument(
@@ -56,10 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def message_for_args(message: str, order_id: str | None) -> str:
-    if order_id and message == DEFAULT_MESSAGE:
+def message_for_args(message: str | None, order_id: str | None) -> str:
+    # Only fill a convenience message when --message was omitted. An explicit
+    # --message keeps its text even when it matches DEFAULT_MESSAGE.
+    if message is not None:
+        return message
+    if order_id:
         return ORDER_MESSAGES.get(order_id, f"Please refund {order_id}.")
-    return message
+    return DEFAULT_MESSAGE
 
 
 def main(argv: Sequence[str] | None = None) -> int:

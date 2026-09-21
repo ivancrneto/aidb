@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+REFERENCE_DATE = date(2026, 9, 21)
+
 
 @dataclass(frozen=True)
 class Order:
@@ -14,7 +16,7 @@ class Order:
 
     @property
     def age_days(self) -> int:
-        return (date(2026, 9, 21) - self.purchased_on).days
+        return (REFERENCE_DATE - self.purchased_on).days
 
     @property
     def within_window(self) -> bool:
@@ -26,13 +28,13 @@ DEFAULT_ORDERS: dict[str, Order] = {
         order_id="ORD-1001",
         item="headphones",
         amount="89.00",
-        purchased_on=date(2026, 9, 21) - timedelta(days=5),
+        purchased_on=REFERENCE_DATE - timedelta(days=5),
     ),
     "ORD-2099": Order(
         order_id="ORD-2099",
         item="camera",
         amount="240.00",
-        purchased_on=date(2026, 9, 21) - timedelta(days=90),
+        purchased_on=REFERENCE_DATE - timedelta(days=90),
     ),
 }
 
