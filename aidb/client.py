@@ -4,6 +4,8 @@ import json
 import socket
 from typing import Any
 
+_MAX_RESPONSE_BYTES = 64 * 1024
+
 
 class ControlClientError(Exception):
     """Raised when the control server response cannot be used."""
@@ -25,6 +27,8 @@ def send_command(
             if not chunk:
                 raise ConnectionError("control server closed without a response")
             buffer += chunk
+            if len(buffer) > _MAX_RESPONSE_BYTES:
+                raise ControlClientError("control server response exceeded size limit")
         try:
             line = buffer.split(b"\n", 1)[0].decode("utf-8")
         except UnicodeDecodeError as exc:

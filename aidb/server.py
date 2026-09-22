@@ -79,6 +79,17 @@ def start_control_server(
                     if not chunk:
                         break
                     buffer += chunk
+                    if len(buffer) > _MAX_REQUEST_BYTES:
+                        response = {
+                            "ok": False,
+                            "error": "request exceeded size limit",
+                            "state": session.state,
+                        }
+                        try:
+                            conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                        except OSError:
+                            pass
+                        break
                     while b"\n" in buffer:
                         raw, buffer = buffer.split(b"\n", 1)
                         try:
