@@ -121,6 +121,6 @@ def start_control_server(
             sock.close()
         except OSError:
             pass
-        thread.join(timeout=2.0)
+        thread.join(timeout=6.0)
 
     return BoundServer(host=bound_host, port=int(bound_port), stop=stop)
