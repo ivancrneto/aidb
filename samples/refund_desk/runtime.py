@@ -7,7 +7,13 @@ from uuid import uuid4
 
 from aidb.session import DebugSession, SessionEnded
 from samples.refund_desk.agents import IntakeAgent, PolicyAgent, resolve_order
-from samples.refund_desk.events import Event, handoff_event, model_reply_event, tool_result_event
+from samples.refund_desk.events import (
+    Event,
+    handoff_event,
+    model_reply_event,
+    run_finished_event,
+    tool_result_event,
+)
 from samples.refund_desk.tools import Toolbelt
 
 Listener = Callable[[Event], None]
@@ -85,13 +91,10 @@ class RefundDeskRuntime:
             result.ended_by_debug = True
             self._emit(
                 result,
-                Event(
-                    kind="run_finished",
-                    run_id=run_id,
-                    payload={
-                        "refunds_issued": list(self.tools.ledger.issued),
-                        "reason": "session_ended",
-                    },
+                run_finished_event(
+                    run_id,
+                    refunds_issued=list(self.tools.ledger.issued),
+                    reason="session_ended",
                 ),
             )
             result.refunds_issued = list(self.tools.ledger.issued)
@@ -99,10 +102,9 @@ class RefundDeskRuntime:
 
         self._emit(
             result,
-            Event(
-                kind="run_finished",
-                run_id=run_id,
-                payload={"refunds_issued": list(self.tools.ledger.issued)},
+            run_finished_event(
+                run_id,
+                refunds_issued=list(self.tools.ledger.issued),
             ),
         )
         result.refunds_issued = list(self.tools.ledger.issued)

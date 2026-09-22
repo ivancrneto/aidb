@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -61,6 +62,7 @@ def start_control_server(
                 # failures should not permanently disable the control plane.
                 if stop_flag.is_set():
                     break
+                time.sleep(0.5)
                 continue
             with conn:
                 conn.settimeout(5.0)
@@ -77,7 +79,19 @@ def start_control_server(
                     buffer += chunk
                     while b"\n" in buffer:
                         raw, buffer = buffer.split(b"\n", 1)
-                        line = raw.decode("utf-8").strip()
+                        try:
+                            line = raw.decode("utf-8").strip()
+                        except UnicodeDecodeError:
+                            response = {
+                                "ok": False,
+                                "error": "invalid utf-8",
+                                "state": session.state,
+                            }
+                            try:
+                                conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                            except OSError:
+                                break
+                            continue
                         if not line:
                             continue
                         try:
