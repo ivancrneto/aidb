@@ -110,15 +110,44 @@ jobs:
             core.setOutput('base_ref', pullRequest.base.ref);
             core.setOutput('head_sha', pullRequest.head.sha);
 
+      # The composite action skips setup-node when the runner already has Node,
+      # then `npm install -g` can omit the optional linux binary. Force Node 24
+      # and install the platform package so `ocr` can spawn opencodereview.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Preinstall OpenCodeReview linux binary
+        run: |
+          npm install -g \
+            "@alibaba-group/open-code-review@1.12.9" \
+            "@alibaba-group/ocr-linux-x64@1.12.9"
+          NPM_GLOBAL_BIN="$(npm config get prefix)/bin"
+          if [ -z "$NPM_GLOBAL_BIN" ] || [ "$NPM_GLOBAL_BIN" = "/bin" ]; then
+            echo "::error::could not resolve npm global bin directory"
+            exit 1
+          fi
+          echo "$NPM_GLOBAL_BIN" >> "$GITHUB_PATH"
+          export PATH="$NPM_GLOBAL_BIN:$PATH"
+          ocr version
+          NATIVE="$(npm root -g)/@alibaba-group/ocr-linux-x64/bin/opencodereview"
+          NESTED="$(npm root -g)/@alibaba-group/open-code-review/node_modules/@alibaba-group/ocr-linux-x64/bin/opencodereview"
+          if [ ! -e "$NATIVE" ] && [ ! -e "$NESTED" ]; then
+            echo "::error::ocr linux binary missing after install ($NATIVE / $NESTED)"
+            exit 1
+          fi
+
       - name: Run OpenCodeReview
-        # Pin to release commit (v1.12.8). Bump intentionally; do not float on @main.
-        uses: alibaba/open-code-review@5c7b38381d1fdd36de6cf622a2a1f768243c4704
+        # Pin to release commit (v1.12.9). Bump intentionally; do not float on @main.
+        uses: alibaba/open-code-review@bccbc15f785269400735d5255540c231e6c02b6d
         with:
           llm_url: ${{ secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
-          ocr_version: 1.12.8
+          ocr_version: 1.12.9
+          node_version: "24"
           # For issue_comment triggers, pass the resolved refs; for
           # pull_request_target the action resolves them from the event.
           base_ref: ${{ steps.pr-context.outputs.base_ref }}
