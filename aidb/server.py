@@ -57,7 +57,11 @@ def start_control_server(
             except socket.timeout:
                 continue
             except OSError:
-                break
+                # stop() sets the flag before closing the socket; other accept
+                # failures should not permanently disable the control plane.
+                if stop_flag.is_set():
+                    break
+                continue
             with conn:
                 conn.settimeout(5.0)
                 buffer = b""

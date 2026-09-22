@@ -34,6 +34,18 @@ def run_refund_desk(
     return runtime.run(user_message, order_id=order_id)
 
 
+def _tcp_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid port: {value!r}") from exc
+    if port < 0 or port > 65535:
+        raise argparse.ArgumentTypeError(
+            f"port must be between 0 and 65535 (got {port})"
+        )
+    return port
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m samples.refund_desk",
@@ -62,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--debug-port",
-        type=int,
+        type=_tcp_port,
         default=None,
         metavar="PORT",
         help=(
