@@ -25,7 +25,12 @@ def send_command(
             if not chunk:
                 raise ConnectionError("control server closed without a response")
             buffer += chunk
-        line = buffer.split(b"\n", 1)[0].decode("utf-8")
+        try:
+            line = buffer.split(b"\n", 1)[0].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ControlClientError(
+                f"control server returned invalid utf-8: {exc}"
+            ) from exc
     try:
         response = json.loads(line)
     except json.JSONDecodeError as exc:

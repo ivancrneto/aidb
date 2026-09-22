@@ -47,7 +47,7 @@ def _print_response(response: dict) -> None:
 def _attach_loop(host: str, port: int) -> int:
     sys.stdout.write(
         f"attached to {host}:{port}\n"
-        "commands: halt | continue | end | status | quit\n"
+        "commands: halt | continue (cont/c) | end | status | quit\n"
     )
     sys.stdout.flush()
     while True:
