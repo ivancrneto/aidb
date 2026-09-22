@@ -123,7 +123,13 @@ jobs:
           npm install -g \
             "@alibaba-group/open-code-review@1.12.9" \
             "@alibaba-group/ocr-linux-x64@1.12.9"
-          echo "$(npm bin -g)" >> "$GITHUB_PATH"
+          NPM_GLOBAL_BIN="$(npm config get prefix)/bin"
+          if [ -z "$NPM_GLOBAL_BIN" ] || [ "$NPM_GLOBAL_BIN" = "/bin" ]; then
+            echo "::error::could not resolve npm global bin directory"
+            exit 1
+          fi
+          echo "$NPM_GLOBAL_BIN" >> "$GITHUB_PATH"
+          export PATH="$NPM_GLOBAL_BIN:$PATH"
           ocr version
           NATIVE="$(npm root -g)/@alibaba-group/ocr-linux-x64/bin/opencodereview"
           NESTED="$(npm root -g)/@alibaba-group/open-code-review/node_modules/@alibaba-group/ocr-linux-x64/bin/opencodereview"
