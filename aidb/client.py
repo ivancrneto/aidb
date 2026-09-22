@@ -5,6 +5,10 @@ import socket
 from typing import Any
 
 
+class ControlClientError(Exception):
+    """Raised when the control server response cannot be used."""
+
+
 def send_command(
     op: str,
     *,
@@ -22,7 +26,10 @@ def send_command(
                 raise ConnectionError("control server closed without a response")
             buffer += chunk
         line = buffer.split(b"\n", 1)[0].decode("utf-8")
-    response = json.loads(line)
+    try:
+        response = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ControlClientError(f"control server returned invalid json: {exc}") from exc
     if not isinstance(response, dict):
-        raise ValueError("control server returned a non-object response")
+        raise ControlClientError("control server returned a non-object response")
     return response

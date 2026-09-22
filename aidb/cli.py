@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Sequence
 
-from aidb.client import send_command
+from aidb.client import ControlClientError, send_command
 
 
 def _add_connection_flags(parser: argparse.ArgumentParser) -> None:
@@ -66,7 +66,7 @@ def _attach_loop(host: str, port: int) -> int:
             continue
         try:
             response = send_command(op, host=host, port=port)
-        except OSError as exc:
+        except (OSError, ControlClientError) as exc:
             sys.stdout.write(f"error: {exc}\n")
             return 1
         _print_response(response)
@@ -78,6 +78,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "attach":
         return _attach_loop(args.host, args.port)
-    response = send_command(args.command, host=args.host, port=args.port)
+    try:
+        response = send_command(args.command, host=args.host, port=args.port)
+    except (OSError, ControlClientError) as exc:
+        sys.stdout.write(f"error: {exc}\n")
+        return 1
     _print_response(response)
     return 0 if response.get("ok") else 1

@@ -8,8 +8,6 @@ from typing import Callable
 
 from aidb.session import DebugSession
 
-Handler = Callable[[dict], dict]
-
 
 @dataclass(frozen=True)
 class BoundServer:
@@ -40,7 +38,7 @@ def start_control_server(
     port: int = 0,
 ) -> BoundServer:
     """Serve JSON-line halt/continue/end/status commands on a localhost TCP port."""
-    if host not in {"127.0.0.1", "localhost", "::1"}:
+    if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("debug control server must bind to localhost only")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -68,6 +66,8 @@ def start_control_server(
                         chunk = conn.recv(4096)
                     except socket.timeout:
                         break
+                    except OSError:
+                        break
                     if not chunk:
                         break
                     buffer += chunk
@@ -89,7 +89,10 @@ def start_control_server(
                                 }
                             else:
                                 response = handle_command(session, request)
-                        conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                        try:
+                            conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                        except OSError:
+                            break
 
     thread = threading.Thread(target=serve, name="aidb-control-server", daemon=True)
     thread.start()

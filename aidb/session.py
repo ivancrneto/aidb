@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
 from typing import Literal
 
 SessionState = Literal["running", "halted", "ended"]
@@ -11,7 +10,6 @@ class SessionEnded(Exception):
     """Raised when a halted run is ended instead of continued."""
 
 
-@dataclass
 class DebugSession:
     """In-process halt / continue / end control for a live run.
 
