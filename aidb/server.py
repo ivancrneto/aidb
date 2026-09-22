@@ -9,6 +9,8 @@ from typing import Callable
 
 from aidb.session import DebugSession
 
+_MAX_REQUEST_BYTES = 64 * 1024
+
 
 @dataclass(frozen=True)
 class BoundServer:
