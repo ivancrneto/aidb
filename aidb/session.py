@@ -4,7 +4,7 @@ import threading
 from typing import Any, Literal, get_args
 
 SessionState = Literal["running", "halted", "ended"]
-BreakKind = Literal["model_reply"]
+BreakKind = Literal["model_reply", "handoff"]
 
 _SUPPORTED_BREAKS: frozenset[str] = frozenset(get_args(BreakKind))
 
@@ -17,9 +17,9 @@ class DebugSession:
     """In-process halt / continue / end / break control for a live run.
 
     Call ``gate_before_advance`` before emitting the next model reply or handoff.
-    Call ``gate_after_event`` after emitting an event so break-on-reply can hold
-    with the value available for inspect. While halted, those calls block so the
-    run cannot advance.
+    Call ``gate_after_event`` after emitting an event so break-on-reply or
+    break-on-handoff can hold with the value available for inspect. While
+    halted, those calls block so the run cannot advance.
     """
 
     def __init__(self) -> None:
@@ -100,7 +100,7 @@ class DebugSession:
     ) -> None:
         """If a break is armed for ``kind``, hold after the event for inspect.
 
-        Payload (including model reply text) is retained in-process for inspect.
+        Payload (model reply or handoff value) is retained in-process for inspect.
         The control plane only exposes it over localhost with a shared token.
         """
         normalized = str(kind or "").strip().lower()
