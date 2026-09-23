@@ -12,11 +12,19 @@
 #   variable  OCR_APPROVE_MAX_FINDINGS  optional; default 5. Approve when every
 #                                    finding is low/medium and count ≤ this.
 #
-# Action inputs used below (supported at pinned open-code-review@bccbc15):
-#   route_severity_below  — see action.yml; 'medium' routes medium+low to summary
+# Verified against alibaba/open-code-review@bccbc15f785269400735d5255540c231e6c02b6d
+# action.yml (do not rename without re-checking that commit):
+#   inputs.route_severity_below — 'medium' routes medium AND low to the sticky
+#     summary; empty/unknown disables routing (findings stay inline).
+#   /tmp/ocr-result.json — stdout capture of `ocr review` in the action's
+#     "Run OCR" step; approve logic expects comments[].severity and
+#     manifest.input.resolved_head (or requested_head). Prefer re-pinning the
+#     action over inventing a parallel schema.
 #
-# For the full list of action inputs/outputs and the four comment-posting modes
-# (sticky / incremental), see action.yml at the repo root.
+# Auto-APPROVE is intentional convenience for same-repo OWNER/MEMBER/
+# COLLABORATOR authors only. Pair with branch protection that requires human
+# reviewers (e.g. dismiss stale reviews / require review from Code Owners) so
+# a bot APPROVE alone cannot satisfy merge gates.
 
 name: OpenCodeReview PR Review
 
@@ -153,13 +161,16 @@ jobs:
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
           ocr_version: 1.12.9
           node_version: "24"
-          # Keep low/medium noise in the sticky summary; high/critical stay inline.
+          # Verified input at pinned SHA; 'medium' routes medium+low to summary.
           route_severity_below: medium
           # For issue_comment triggers, pass the resolved refs; for
           # pull_request_target the action resolves them from the event.
           base_ref: ${{ steps.pr-context.outputs.base_ref }}
           head_sha: ${{ steps.pr-context.outputs.head_sha }}
 
+      # Best-effort: review comments already posted. continue-on-error keeps the
+      # job green, but every skip/failure emits ::warning:: so it shows in the
+      # Actions UI / annotations (not silent).
       - name: Approve when findings are light
         if: success()
         continue-on-error: true
@@ -170,99 +181,113 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            // Contract from open-code-review@bccbc15 "Run OCR" step stdout redirect.
             const resultPath = '/tmp/ocr-result.json';
-            if (!fs.existsSync(resultPath)) {
-              core.warning('ocr-result.json missing; skipping approve decision');
-              return;
-            }
 
-            let data;
             try {
-              data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+              if (!fs.existsSync(resultPath)) {
+                core.warning('ocr-result.json missing; skipping approve decision');
+                return;
+              }
+
+              let data;
+              try {
+                data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+              } catch (err) {
+                core.warning(`Failed to parse ocr-result.json: ${err.message}`);
+                return;
+              }
+
+              const prNumber =
+                context.payload.pull_request?.number || context.payload.issue?.number;
+              if (!prNumber) {
+                core.warning('No PR number; skipping approve');
+                return;
+              }
+
+              const { data: pull } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              // Never auto-approve fork PRs or untrusted authors on pull_request_target.
+              // Trusted authors can still get a bot APPROVE on their own PR — treat
+              // that as intentional; require human review via branch protection.
+              const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
+              const headRepo = pull.head.repo?.full_name || '';
+              if (headRepo !== baseRepo) {
+                core.info(`Not approving: head repo ${headRepo || '(missing)'} is not ${baseRepo}`);
+                return;
+              }
+
+              const trusted = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+              const prAssoc = String(pull.author_association || '').toUpperCase();
+              if (!trusted.has(prAssoc)) {
+                core.info(`Not approving: PR author association is ${prAssoc || 'unknown'}`);
+                return;
+              }
+
+              const freshHead = String(pull.head.sha || '').trim();
+              const expectedHead = String(process.env.EXPECTED_HEAD_SHA || '').trim();
+              if (!expectedHead || !freshHead || expectedHead !== freshHead) {
+                core.warning(
+                  `Not approving: PR head moved (fresh=${freshHead || '(missing)'}, expected=${expectedHead || '(missing)'})`
+                );
+                return;
+              }
+
+              const reviewedHead = String(
+                data?.manifest?.input?.resolved_head ||
+                  data?.manifest?.input?.requested_head ||
+                  ''
+              ).trim();
+              if (!reviewedHead || expectedHead !== reviewedHead) {
+                core.warning(
+                  `Not approving: reviewed head ${reviewedHead || '(missing)'} != expected ${expectedHead}`
+                );
+                return;
+              }
+
+              const comments = Array.isArray(data.comments) ? data.comments : [];
+              const DEFAULT_MAX_LIGHT = 5;
+              const parsed = parseInt(process.env.OCR_APPROVE_MAX_FINDINGS, 10);
+              const maxLight = Math.max(0, Number.isNaN(parsed) ? DEFAULT_MAX_LIGHT : parsed);
+
+              const severityOf = (c) => String(c.severity || '').toLowerCase();
+              const isLight = (s) => s === 'low' || s === 'medium';
+              const isSevere = (s) => s === 'high' || s === 'critical';
+
+              const severities = comments.map(severityOf);
+              const severe = severities.filter(isSevere);
+              const unknown = severities.filter((s) => s && !isLight(s) && !isSevere(s));
+              const emptySeverity = severities.filter((s) => !s);
+
+              if (severe.length > 0 || unknown.length > 0 || emptySeverity.length > 0) {
+                core.info(
+                  `Not approving: severe=${severe.length} unknown=${unknown.length} empty=${emptySeverity.length} total=${comments.length}`
+                );
+                return;
+              }
+              if (comments.length > maxLight) {
+                core.info(`Not approving: ${comments.length} light findings exceed max ${maxLight}`);
+                return;
+              }
+
+              const body =
+                comments.length === 0
+                  ? 'OpenCodeReview found no issues — approving.'
+                  : `OpenCodeReview found only low/medium findings (${comments.length} ≤ ${maxLight}) — approving.`;
+
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                commit_id: expectedHead,
+                event: 'APPROVE',
+                body,
+              });
+              core.info(`Approved PR #${prNumber} at ${expectedHead}`);
             } catch (err) {
-              core.warning(`Failed to parse ocr-result.json: ${err.message}`);
-              return;
+              core.warning(`Approve step failed (non-fatal): ${err.message || err}`);
             }
-
-            const prNumber =
-              context.payload.pull_request?.number || context.payload.issue?.number;
-            if (!prNumber) {
-              core.warning('No PR number; skipping approve');
-              return;
-            }
-
-            const { data: pull } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-
-            // Never auto-approve fork PRs or untrusted authors on pull_request_target.
-            const baseRepo = `${context.repo.owner}/${context.repo.repo}`;
-            const headRepo = pull.head.repo?.full_name || '';
-            if (headRepo !== baseRepo) {
-              core.info(`Not approving: head repo ${headRepo || '(missing)'} is not ${baseRepo}`);
-              return;
-            }
-
-            const trusted = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
-            const prAssoc = String(pull.author_association || '').toUpperCase();
-            if (!trusted.has(prAssoc)) {
-              core.info(`Not approving: PR author association is ${prAssoc || 'unknown'}`);
-              return;
-            }
-
-            const expectedHead = String(
-              process.env.EXPECTED_HEAD_SHA || pull.head.sha || ''
-            ).trim();
-            const reviewedHead = String(
-              data?.manifest?.input?.resolved_head ||
-                data?.manifest?.input?.requested_head ||
-                ''
-            ).trim();
-            if (!expectedHead || !reviewedHead || expectedHead !== reviewedHead) {
-              core.warning(
-                `Not approving: reviewed head ${reviewedHead || '(missing)'} != expected ${expectedHead || '(missing)'}`
-              );
-              return;
-            }
-
-            const comments = Array.isArray(data.comments) ? data.comments : [];
-            const DEFAULT_MAX_LIGHT = 5;
-            const parsed = parseInt(process.env.OCR_APPROVE_MAX_FINDINGS, 10);
-            const maxLight = Math.max(0, Number.isNaN(parsed) ? DEFAULT_MAX_LIGHT : parsed);
-
-            const severityOf = (c) => String(c.severity || '').toLowerCase();
-            const isLight = (s) => s === 'low' || s === 'medium';
-            const isSevere = (s) => s === 'high' || s === 'critical';
-
-            const severities = comments.map(severityOf);
-            const severe = severities.filter(isSevere);
-            const unknown = severities.filter((s) => s && !isLight(s) && !isSevere(s));
-            const emptySeverity = severities.filter((s) => !s);
-
-            if (severe.length > 0 || unknown.length > 0 || emptySeverity.length > 0) {
-              core.info(
-                `Not approving: severe=${severe.length} unknown=${unknown.length} empty=${emptySeverity.length} total=${comments.length}`
-              );
-              return;
-            }
-            if (comments.length > maxLight) {
-              core.info(`Not approving: ${comments.length} light findings exceed max ${maxLight}`);
-              return;
-            }
-
-            const body =
-              comments.length === 0
-                ? 'OpenCodeReview found no issues — approving.'
-                : `OpenCodeReview found only low/medium findings (${comments.length} ≤ ${maxLight}) — approving.`;
-
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              commit_id: expectedHead,
-              event: 'APPROVE',
-              body,
-            });
-            core.info(`Approved PR #${prNumber} at ${expectedHead}`);
