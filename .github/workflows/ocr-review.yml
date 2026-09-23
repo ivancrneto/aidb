@@ -21,10 +21,14 @@
 #     manifest.input.resolved_head (or requested_head). Prefer re-pinning the
 #     action over inventing a parallel schema.
 #
-# Auto-APPROVE is intentional convenience for same-repo OWNER/MEMBER/
-# COLLABORATOR authors only. Pair with branch protection that requires human
-# reviewers (e.g. dismiss stale reviews / require review from Code Owners) so
-# a bot APPROVE alone cannot satisfy merge gates.
+# Auto-APPROVE posts an actual GitHub review event: APPROVE when findings are
+# empty or only low/medium within OCR_APPROVE_MAX_FINDINGS. Requires repo
+# Settings → Actions → General → Workflow permissions:
+#   - Read and write permissions
+#   - "Allow GitHub Actions to create and approve pull requests" checked
+# Same-repo OWNER/MEMBER/COLLABORATOR authors only. Pair with branch
+# protection that still requires a human reviewer so a bot APPROVE alone
+# cannot satisfy merge gates.
 
 name: OpenCodeReview PR Review
 
@@ -289,5 +293,13 @@ jobs:
               });
               core.info(`Approved PR #${prNumber} at ${expectedHead}`);
             } catch (err) {
-              core.warning(`Approve step failed (non-fatal): ${err.message || err}`);
+              const msg = String(err.message || err);
+              if (msg.includes('not permitted to approve')) {
+                core.warning(
+                  `${msg} Enable Settings → Actions → General → ` +
+                    '"Allow GitHub Actions to create and approve pull requests".'
+                );
+              } else {
+                core.warning(`Approve step failed (non-fatal): ${msg}`);
+              }
             }
