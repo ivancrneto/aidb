@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import json
+import secrets
 import socket
 import threading
 import time
@@ -16,6 +18,7 @@ _MAX_REQUEST_BYTES = 64 * 1024
 class BoundServer:
     host: str
     port: int
+    token: str
     stop: Callable[[], None]
 
 
@@ -31,7 +34,20 @@ def _status_payload(session: DebugSession) -> dict:
     return payload
 
 
-def handle_command(session: DebugSession, request: dict) -> dict:
+def handle_command(
+    session: DebugSession,
+    request: dict,
+    *,
+    token: str,
+) -> dict:
+    provided = request.get("token")
+    if not isinstance(provided, str) or not hmac.compare_digest(provided, token):
+        return {
+            "ok": False,
+            "error": "unauthorized: missing or invalid token",
+            "state": session.state,
+        }
+
     op = str(request.get("op") or "").strip().lower()
     if op == "halt":
         session.halt()
@@ -62,10 +78,19 @@ def start_control_server(
     *,
     host: str = "127.0.0.1",
     port: int = 0,
+    token: str | None = None,
 ) -> BoundServer:
-    """Serve JSON-line halt/continue/end/status commands on a localhost TCP port."""
+    """Serve JSON-line control commands on a localhost TCP port.
+
+    Requires a shared ``token`` on every request so model-reply payloads returned
+    by status/inspect are not readable by an unauthenticated local client.
+    """
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("debug control server must bind to localhost only")
+
+    control_token = token if token is not None else secrets.token_urlsafe(18)
+    if not control_token:
+        raise ValueError("control token must be non-empty")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -133,7 +158,11 @@ def start_control_server(
                         try:
                             request = json.loads(line)
                         except json.JSONDecodeError:
-                            response = {"ok": False, "error": "invalid json", "state": session.state}
+                            response = {
+                                "ok": False,
+                                "error": "invalid json",
+                                "state": session.state,
+                            }
                         else:
                             if not isinstance(request, dict):
                                 response = {
@@ -142,7 +171,9 @@ def start_control_server(
                                     "state": session.state,
                                 }
                             else:
-                                response = handle_command(session, request)
+                                response = handle_command(
+                                    session, request, token=control_token
+                                )
                         try:
                             conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
                         except OSError:
@@ -159,4 +190,9 @@ def start_control_server(
             pass
         thread.join(timeout=6.0)
 
-    return BoundServer(host=bound_host, port=int(bound_port), stop=stop)
+    return BoundServer(
+        host=bound_host,
+        port=int(bound_port),
+        token=control_token,
+        stop=stop,
+    )

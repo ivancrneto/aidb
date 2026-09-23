@@ -126,6 +126,7 @@ def test_break_reply_over_tcp_status_includes_stop() -> None:
             "break",
             host=server.host,
             port=server.port,
+            token=server.token,
             on="model_reply",
             enabled=True,
         )
@@ -139,7 +140,12 @@ def test_break_reply_over_tcp_status_includes_stop() -> None:
         deadline = time.time() + 2.0
         status = None
         while time.time() < deadline:
-            status = send_command("status", host=server.host, port=server.port)
+            status = send_command(
+                "status",
+                host=server.host,
+                port=server.port,
+                token=server.token,
+            )
             if status.get("state") == "halted" and status.get("stop"):
                 break
             time.sleep(0.02)
@@ -148,17 +154,28 @@ def test_break_reply_over_tcp_status_includes_stop() -> None:
         assert status["stop"]["kind"] == "model_reply"
         assert status["stop"]["payload"]["agent"] == "intake"
 
-        inspect = send_command("inspect", host=server.host, port=server.port)
+        inspect = send_command(
+            "inspect",
+            host=server.host,
+            port=server.port,
+            token=server.token,
+        )
         assert inspect["stop"]["payload"]["content"] == status["stop"]["payload"]["content"]
 
         send_command(
             "break",
             host=server.host,
             port=server.port,
+            token=server.token,
             on="model_reply",
             enabled=False,
         )
-        cont = send_command("continue", host=server.host, port=server.port)
+        cont = send_command(
+            "continue",
+            host=server.host,
+            port=server.port,
+            token=server.token,
+        )
         assert cont["ok"] is True
         assert cont["state"] == "running"
         assert "stop" not in cont

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 
 from aidb.client import ControlClientError, send_command
+
+
+def _break_fields(*, enabled: bool) -> dict:
+    return {"on": "model_reply", "enabled": enabled}
 
 
 def _add_connection_flags(parser: argparse.ArgumentParser) -> None:
@@ -19,6 +24,11 @@ def _add_connection_flags(parser: argparse.ArgumentParser) -> None:
         type=int,
         required=True,
         help="Control port printed by the sample app",
+    )
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("AIDB_CONTROL_TOKEN"),
+        help="Shared control token from the sample app (or AIDB_CONTROL_TOKEN)",
     )
 
 
@@ -50,11 +60,17 @@ def _print_response(response: dict) -> None:
     sys.stdout.write(json.dumps(response, sort_keys=True) + "\n")
 
 
-def _dispatch(op: str, host: str, port: int, **fields) -> dict:
-    return send_command(op, host=host, port=port, **fields)
+def _dispatch(op: str, host: str, port: int, token: str, **fields) -> dict:
+    return send_command(op, host=host, port=port, token=token, **fields)
 
 
-def _attach_loop(host: str, port: int) -> int:
+def _require_token(token: str | None) -> str | None:
+    if token:
+        return None
+    return "missing --token (or AIDB_CONTROL_TOKEN); copy it from the sample app stderr"
+
+
+def _attach_loop(host: str, port: int, token: str) -> int:
     sys.stdout.write(
         f"attached to {host}:{port}\n"
         "commands: halt | break-reply | clear-break-reply | continue (cont/c) | "
@@ -74,18 +90,18 @@ def _attach_loop(host: str, port: int) -> int:
         if line in {"continue", "cont", "c"}:
             op, fields = "continue", {}
         elif line in {"break-reply", "break"}:
-            op, fields = "break", {"on": "model_reply", "enabled": True}
+            op, fields = "break", _break_fields(enabled=True)
         elif line in {"clear-break-reply", "clear-break"}:
-            op, fields = "break", {"on": "model_reply", "enabled": False}
+            op, fields = "break", _break_fields(enabled=False)
         elif line in {"inspect", "status"}:
-            op, fields = line if line == "inspect" else "status", {}
+            op, fields = line, {}
         elif line in {"halt", "end"}:
             op, fields = line, {}
         else:
             sys.stdout.write("unknown command\n")
             continue
         try:
-            response = _dispatch(op, host, port, **fields)
+            response = _dispatch(op, host, port, token, **fields)
         except (OSError, ControlClientError) as exc:
             sys.stdout.write(f"error: {exc}\n")
             return 1
@@ -96,18 +112,23 @@ def _attach_loop(host: str, port: int) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    missing = _require_token(args.token)
+    if missing:
+        sys.stdout.write(f"error: {missing}\n")
+        return 1
+
     if args.command == "attach":
-        return _attach_loop(args.host, args.port)
+        return _attach_loop(args.host, args.port, args.token)
 
     if args.command == "break-reply":
-        op, fields = "break", {"on": "model_reply", "enabled": True}
+        op, fields = "break", _break_fields(enabled=True)
     elif args.command == "clear-break-reply":
-        op, fields = "break", {"on": "model_reply", "enabled": False}
+        op, fields = "break", _break_fields(enabled=False)
     else:
         op, fields = args.command, {}
 
     try:
-        response = _dispatch(op, args.host, args.port, **fields)
+        response = _dispatch(op, args.host, args.port, args.token, **fields)
     except (OSError, ControlClientError) as exc:
         sys.stdout.write(f"error: {exc}\n")
         return 1

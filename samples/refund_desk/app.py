@@ -113,7 +113,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         stop_server = bound.stop
         sys.stderr.write(
             f"[debug] listening on {bound.host}:{bound.port}\n"
-            f"[debug] attach with: python -m aidb attach --port {bound.port}\n"
+            f"[debug] token={bound.token}\n"
+            f"[debug] attach with: python -m aidb attach --port {bound.port} "
+            f"--token {bound.token}\n"
         )
         sys.stderr.flush()
     try:

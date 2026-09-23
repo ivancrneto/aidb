@@ -90,7 +90,12 @@ def test_attach_over_tcp_halt_and_continue() -> None:
         events.append(event.kind)
         if event.kind == "run_started":
             # Halt before this listener returns so the next advance gate blocks.
-            response = send_command("halt", host=server.host, port=server.port)
+            response = send_command(
+                "halt",
+                host=server.host,
+                port=server.port,
+                token=server.token,
+            )
             assert response["ok"] is True
             assert response["state"] == "halted"
             halted.set()
@@ -110,14 +115,42 @@ def test_attach_over_tcp_halt_and_continue() -> None:
         time.sleep(0.1)
         assert "model_reply" not in events
 
-        status = send_command("status", host=server.host, port=server.port)
+        status = send_command(
+            "status",
+            host=server.host,
+            port=server.port,
+            token=server.token,
+        )
         assert status["state"] == "halted"
 
-        cont = send_command("continue", host=server.host, port=server.port)
+        cont = send_command(
+            "continue",
+            host=server.host,
+            port=server.port,
+            token=server.token,
+        )
         assert cont["ok"] is True
         assert cont["state"] == "running"
         thread.join(timeout=2.0)
         assert not thread.is_alive()
         assert result_box[0].of_kind("handoff")
+    finally:
+        server.stop()
+
+
+def test_control_requires_token() -> None:
+    session = DebugSession()
+    server = start_control_server(session, host="127.0.0.1", port=0)
+    try:
+        denied = send_command("status", host=server.host, port=server.port)
+        assert denied["ok"] is False
+        assert "token" in denied["error"]
+        ok = send_command(
+            "status",
+            host=server.host,
+            port=server.port,
+            token=server.token,
+        )
+        assert ok["ok"] is True
     finally:
         server.stop()

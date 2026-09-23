@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 SessionState = Literal["running", "halted", "ended"]
 BreakKind = Literal["model_reply"]
 
-_SUPPORTED_BREAKS: frozenset[str] = frozenset({"model_reply"})
+_SUPPORTED_BREAKS: frozenset[str] = frozenset(get_args(BreakKind))
 
 
 class SessionEnded(Exception):
@@ -27,7 +27,7 @@ class DebugSession:
         self._continue.set()
         self._ended = threading.Event()
         self._lock = threading.Lock()
-        self._breaks: set[str] = set()
+        self._breaks: set[BreakKind] = set()
         self._stop: dict[str, Any] | None = None
 
     @property
@@ -51,19 +51,20 @@ class DebugSession:
             }
 
     @property
-    def breaks(self) -> list[str]:
+    def breaks(self) -> list[BreakKind]:
         with self._lock:
             return sorted(self._breaks)
 
-    def set_break(self, kind: str, *, enabled: bool = True) -> None:
-        kind = str(kind or "").strip().lower()
-        if kind not in _SUPPORTED_BREAKS:
+    def set_break(self, kind: BreakKind | str, *, enabled: bool = True) -> None:
+        normalized = str(kind or "").strip().lower()
+        if normalized not in _SUPPORTED_BREAKS:
             raise ValueError(f"unsupported break kind: {kind}")
+        break_kind: BreakKind = normalized  # type: ignore[assignment]
         with self._lock:
             if enabled:
-                self._breaks.add(kind)
+                self._breaks.add(break_kind)
             else:
-                self._breaks.discard(kind)
+                self._breaks.discard(break_kind)
 
     def halt(self) -> None:
         with self._lock:
@@ -92,20 +93,24 @@ class DebugSession:
 
     def gate_after_event(
         self,
-        kind: str,
+        kind: BreakKind | str,
         *,
         run_id: str,
         payload: dict[str, Any],
     ) -> None:
-        """If a break is armed for ``kind``, hold after the event for inspect."""
-        kind = str(kind or "").strip().lower()
+        """If a break is armed for ``kind``, hold after the event for inspect.
+
+        Payload (including model reply text) is retained in-process for inspect.
+        The control plane only exposes it over localhost with a shared token.
+        """
+        normalized = str(kind or "").strip().lower()
         with self._lock:
             if self._ended.is_set():
                 return
-            if kind not in self._breaks:
+            if normalized not in self._breaks:
                 return
             self._stop = {
-                "kind": kind,
+                "kind": normalized,
                 "run_id": run_id,
                 "payload": dict(payload),
             }
