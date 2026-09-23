@@ -1,12 +1,15 @@
 # Refund desk sample
 
-In-repo multi-agent app for the live-attach milestone (Epic A).
+In-repo multi-agent app for the live-attach milestone.
 
 - Two agents: `intake` and `policy`
 - One mocked tool: `issue_refund` (in-memory ledger, no network or payment)
 - Observable `model_reply` and `handoff` events on stdout
-- Optional localhost debug port for attach / halt / continue (TKT-A2 / #10)
+- Optional localhost debug port for attach / halt / break-after-reply (TKT-A2, TKT-B1)
 - No debugger UI
+
+The control server accepts **127.0.0.1 / localhost only** and requires a **shared token**
+on every command (public repo safety). The token is printed on stderr with the port.
 
 ```bash
 python -m samples.refund_desk
@@ -21,16 +24,29 @@ Terminal 1 — start a paced live run with a control port:
 python -m samples.refund_desk --debug-port 8765 --pace 2
 ```
 
-Terminal 2 — attach and halt before the next model reply or handoff:
+Terminal 2 — use the printed token:
 
 ```bash
-python -m aidb halt --port 8765
-python -m aidb status --port 8765
-python -m aidb continue --port 8765
+export AIDB_CONTROL_TOKEN=...   # from stderr
+python -m aidb halt --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb status --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb continue --port 8765 --token "$AIDB_CONTROL_TOKEN"
 ```
 
 Or an interactive session:
 
 ```bash
-python -m aidb attach --port 8765
+python -m aidb attach --port 8765 --token "$AIDB_CONTROL_TOKEN"
+```
+
+## Stop after model reply (TKT-B1)
+
+Arm a sticky break so each model reply is held for inspect. Resume without editing
+keeps the original reply (editing is a later ticket).
+
+```bash
+python -m aidb break-reply --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb inspect --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb continue --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb clear-break-reply --port 8765 --token "$AIDB_CONTROL_TOKEN"
 ```

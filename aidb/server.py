@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import json
+import secrets
 import socket
 import threading
 import time
@@ -16,10 +18,36 @@ _MAX_REQUEST_BYTES = 64 * 1024
 class BoundServer:
     host: str
     port: int
+    token: str
     stop: Callable[[], None]
 
 
-def handle_command(session: DebugSession, request: dict) -> dict:
+def _status_payload(session: DebugSession) -> dict:
+    payload: dict = {
+        "ok": True,
+        "state": session.state,
+        "breaks": session.breaks,
+    }
+    stop = session.stop
+    if stop is not None:
+        payload["stop"] = stop
+    return payload
+
+
+def handle_command(
+    session: DebugSession,
+    request: dict,
+    *,
+    token: str,
+) -> dict:
+    provided = request.get("token")
+    if not isinstance(provided, str) or not hmac.compare_digest(provided, token):
+        return {
+            "ok": False,
+            "error": "unauthorized: missing or invalid token",
+            "state": session.state,
+        }
+
     op = str(request.get("op") or "").strip().lower()
     if op == "halt":
         session.halt()
@@ -27,11 +55,22 @@ def handle_command(session: DebugSession, request: dict) -> dict:
         session.continue_run()
     elif op == "end":
         session.end()
-    elif op == "status":
-        pass
+    elif op in {"status", "inspect"}:
+        return _status_payload(session)
+    elif op == "break":
+        on = str(request.get("on") or "").strip().lower()
+        enabled = request.get("enabled", True)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            enabled = bool(enabled)
+        try:
+            session.set_break(on, enabled=enabled)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "state": session.state}
     else:
         return {"ok": False, "error": f"unknown op: {op}", "state": session.state}
-    return {"ok": True, "state": session.state}
+    return _status_payload(session)
 
 
 def start_control_server(
@@ -39,10 +78,19 @@ def start_control_server(
     *,
     host: str = "127.0.0.1",
     port: int = 0,
+    token: str | None = None,
 ) -> BoundServer:
-    """Serve JSON-line halt/continue/end/status commands on a localhost TCP port."""
+    """Serve JSON-line control commands on a localhost TCP port.
+
+    Requires a shared ``token`` on every request so model-reply payloads returned
+    by status/inspect are not readable by an unauthenticated local client.
+    """
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("debug control server must bind to localhost only")
+
+    control_token = token if token is not None else secrets.token_urlsafe(18)
+    if not control_token:
+        raise ValueError("control token must be non-empty")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -110,7 +158,11 @@ def start_control_server(
                         try:
                             request = json.loads(line)
                         except json.JSONDecodeError:
-                            response = {"ok": False, "error": "invalid json", "state": session.state}
+                            response = {
+                                "ok": False,
+                                "error": "invalid json",
+                                "state": session.state,
+                            }
                         else:
                             if not isinstance(request, dict):
                                 response = {
@@ -119,7 +171,9 @@ def start_control_server(
                                     "state": session.state,
                                 }
                             else:
-                                response = handle_command(session, request)
+                                response = handle_command(
+                                    session, request, token=control_token
+                                )
                         try:
                             conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
                         except OSError:
@@ -136,4 +190,9 @@ def start_control_server(
             pass
         thread.join(timeout=6.0)
 
-    return BoundServer(host=bound_host, port=int(bound_port), stop=stop)
+    return BoundServer(
+        host=bound_host,
+        port=int(bound_port),
+        token=control_token,
+        stop=stop,
+    )

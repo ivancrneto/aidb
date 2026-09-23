@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 
 from aidb.client import ControlClientError, send_command
 
 
+def _break_fields(*, enabled: bool) -> dict:
+    return {"on": "model_reply", "enabled": enabled}
+
+
 def _add_connection_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="Control host (default: 127.0.0.1)",
+        help="Control host (default: 127.0.0.1; public repo: keep localhost-only)",
     )
     parser.add_argument(
         "--port",
@@ -20,20 +25,31 @@ def _add_connection_flags(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="Control port printed by the sample app",
     )
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("AIDB_CONTROL_TOKEN"),
+        help="Shared control token from the sample app (or AIDB_CONTROL_TOKEN)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m aidb",
-        description="Attach to a live aidb debug control port and halt, continue, or end the run.",
+        description=(
+            "Attach to a live aidb debug control port (localhost) and halt, "
+            "break after model replies, continue, or end the run."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (
-        ("attach", "Interactive halt/continue/end/status loop"),
+        ("attach", "Interactive halt/break-reply/continue/end/status loop"),
         ("halt", "Halt the live run at the next controlled stop"),
-        ("continue", "Continue a halted run"),
+        ("break-reply", "Stop after each model reply so the reply can be inspected"),
+        ("clear-break-reply", "Disable stop-after model reply breaks"),
+        ("continue", "Continue a halted run (without editing the stopped value)"),
         ("end", "End the debug session and stop the run"),
-        ("status", "Print the current session state"),
+        ("status", "Print session state, breaks, and stopped value if any"),
+        ("inspect", "Alias for status (shows stopped model reply when held)"),
     ):
         command = sub.add_parser(name, help=help_text)
         _add_connection_flags(command)
@@ -44,10 +60,21 @@ def _print_response(response: dict) -> None:
     sys.stdout.write(json.dumps(response, sort_keys=True) + "\n")
 
 
-def _attach_loop(host: str, port: int) -> int:
+def _dispatch(op: str, host: str, port: int, token: str, **fields) -> dict:
+    return send_command(op, host=host, port=port, token=token, **fields)
+
+
+def _require_token(token: str | None) -> str | None:
+    if token:
+        return None
+    return "missing --token (or AIDB_CONTROL_TOKEN); copy it from the sample app stderr"
+
+
+def _attach_loop(host: str, port: int, token: str) -> int:
     sys.stdout.write(
         f"attached to {host}:{port}\n"
-        "commands: halt | continue (cont/c) | end | status | quit\n"
+        "commands: halt | break-reply | clear-break-reply | continue (cont/c) | "
+        "end | status | inspect | quit\n"
     )
     sys.stdout.flush()
     while True:
@@ -60,12 +87,21 @@ def _attach_loop(host: str, port: int) -> int:
             continue
         if line in {"quit", "exit", "q"}:
             return 0
-        op = "continue" if line in {"continue", "cont", "c"} else line
-        if op not in {"halt", "continue", "end", "status"}:
+        if line in {"continue", "cont", "c"}:
+            op, fields = "continue", {}
+        elif line in {"break-reply", "break"}:
+            op, fields = "break", _break_fields(enabled=True)
+        elif line in {"clear-break-reply", "clear-break"}:
+            op, fields = "break", _break_fields(enabled=False)
+        elif line in {"inspect", "status"}:
+            op, fields = line, {}
+        elif line in {"halt", "end"}:
+            op, fields = line, {}
+        else:
             sys.stdout.write("unknown command\n")
             continue
         try:
-            response = send_command(op, host=host, port=port)
+            response = _dispatch(op, host, port, token, **fields)
         except (OSError, ControlClientError) as exc:
             sys.stdout.write(f"error: {exc}\n")
             return 1
@@ -76,10 +112,23 @@ def _attach_loop(host: str, port: int) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    missing = _require_token(args.token)
+    if missing:
+        sys.stdout.write(f"error: {missing}\n")
+        return 1
+
     if args.command == "attach":
-        return _attach_loop(args.host, args.port)
+        return _attach_loop(args.host, args.port, args.token)
+
+    if args.command == "break-reply":
+        op, fields = "break", _break_fields(enabled=True)
+    elif args.command == "clear-break-reply":
+        op, fields = "break", _break_fields(enabled=False)
+    else:
+        op, fields = args.command, {}
+
     try:
-        response = send_command(args.command, host=args.host, port=args.port)
+        response = _dispatch(op, args.host, args.port, args.token, **fields)
     except (OSError, ControlClientError) as exc:
         sys.stdout.write(f"error: {exc}\n")
         return 1

@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PORT",
         help=(
             "Listen for aidb attach on 127.0.0.1:PORT (0 = ephemeral). "
-            "Enables halt / continue / end for a live run."
+            "Localhost only — safe default for a public repo. "
+            "Enables halt / break-reply / continue / end for a live run."
         ),
     )
     parser.add_argument(
@@ -112,7 +113,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         stop_server = bound.stop
         sys.stderr.write(
             f"[debug] listening on {bound.host}:{bound.port}\n"
-            f"[debug] attach with: python -m aidb attach --port {bound.port}\n"
+            f"[debug] token={bound.token}\n"
+            f"[debug] attach with: python -m aidb attach --port {bound.port} "
+            f"--token {bound.token}\n"
         )
         sys.stderr.flush()
     try:
