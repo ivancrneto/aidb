@@ -114,6 +114,12 @@ class RefundDeskRuntime:
         if self.debug is not None:
             self.debug.gate_before_advance()
         self._emit(result, event)
+        if self.debug is not None:
+            self.debug.gate_after_event(
+                event.kind,
+                run_id=event.run_id,
+                payload=event.payload,
+            )
         if self.pace_seconds > 0:
             time.sleep(self.pace_seconds)
 

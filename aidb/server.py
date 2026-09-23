@@ -19,6 +19,18 @@ class BoundServer:
     stop: Callable[[], None]
 
 
+def _status_payload(session: DebugSession) -> dict:
+    payload: dict = {
+        "ok": True,
+        "state": session.state,
+        "breaks": session.breaks,
+    }
+    stop = session.stop
+    if stop is not None:
+        payload["stop"] = stop
+    return payload
+
+
 def handle_command(session: DebugSession, request: dict) -> dict:
     op = str(request.get("op") or "").strip().lower()
     if op == "halt":
@@ -27,11 +39,22 @@ def handle_command(session: DebugSession, request: dict) -> dict:
         session.continue_run()
     elif op == "end":
         session.end()
-    elif op == "status":
-        pass
+    elif op in {"status", "inspect"}:
+        return _status_payload(session)
+    elif op == "break":
+        on = str(request.get("on") or "").strip().lower()
+        enabled = request.get("enabled", True)
+        if isinstance(enabled, str):
+            enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            enabled = bool(enabled)
+        try:
+            session.set_break(on, enabled=enabled)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "state": session.state}
     else:
         return {"ok": False, "error": f"unknown op: {op}", "state": session.state}
-    return {"ok": True, "state": session.state}
+    return _status_payload(session)
 
 
 def start_control_server(

@@ -91,7 +91,8 @@ def test_attach_over_tcp_halt_and_continue() -> None:
         if event.kind == "run_started":
             # Halt before this listener returns so the next advance gate blocks.
             response = send_command("halt", host=server.host, port=server.port)
-            assert response == {"ok": True, "state": "halted"}
+            assert response["ok"] is True
+            assert response["state"] == "halted"
             halted.set()
 
     runtime = RefundDeskRuntime(debug=session, listener=listener)
@@ -113,7 +114,8 @@ def test_attach_over_tcp_halt_and_continue() -> None:
         assert status["state"] == "halted"
 
         cont = send_command("continue", host=server.host, port=server.port)
-        assert cont == {"ok": True, "state": "running"}
+        assert cont["ok"] is True
+        assert cont["state"] == "running"
         thread.join(timeout=2.0)
         assert not thread.is_alive()
         assert result_box[0].of_kind("handoff")

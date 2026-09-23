@@ -17,8 +17,10 @@ def send_command(
     host: str = "127.0.0.1",
     port: int,
     timeout: float = 5.0,
+    **fields: Any,
 ) -> dict[str, Any]:
-    payload = (json.dumps({"op": op}) + "\n").encode("utf-8")
+    body = {"op": op, **fields}
+    payload = (json.dumps(body) + "\n").encode("utf-8")
     with socket.create_connection((host, port), timeout=timeout) as conn:
         conn.sendall(payload)
         buffer = b""
