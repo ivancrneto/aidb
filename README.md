@@ -4,33 +4,22 @@ Live-attach debugger for multi-agent apps.
 
 A developer attaches to a live run, stops on a model reply or a handoff (tool or agent), edits that value, and resumes the same run so the next step uses the edit.
 
-This repository is at the first implementation ticket: an in-repo sample app the later attach workflow can use.
-
 ## Sample app
 
-`samples/refund_desk` is a mocked multi-agent refund desk. It is a CLI process. Starting it does not open a debugger UI.
+`samples/refund_desk` is a mocked multi-agent refund desk. It is a CLI process. Starting it does not open or require a debugger UI.
 
 ```bash
 python -m samples.refund_desk
 ```
 
-Approved path (default, `ORD-1001`):
+### Attach and halt
 
-- intake agent produces a model reply
-- intake hands off to the policy agent
-- policy produces a model reply
-- policy hands off to the mocked `issue_refund` tool
-
-Denied path:
+Start the sample with a localhost control port, then halt or continue from another terminal:
 
 ```bash
-python -m samples.refund_desk --order ORD-2099
-```
-
-JSON events:
-
-```bash
-python -m samples.refund_desk --format json
+python -m samples.refund_desk --debug-port 8765 --pace 2
+python -m aidb halt --port 8765
+python -m aidb continue --port 8765
 ```
 
 ## Tests

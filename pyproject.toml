@@ -15,9 +15,10 @@ dev = ["pytest>=8.0", "ruff>=0.4", "mypy>=1.8"]
 
 [project.scripts]
 refund-desk = "samples.refund_desk.app:main"
+aidb = "aidb.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["samples*"]
+include = ["samples*", "aidb*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

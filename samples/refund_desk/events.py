@@ -49,3 +49,15 @@ def handoff_event(run_id: str, handoff: Handoff) -> Event:
 
 def tool_result_event(run_id: str, result: ToolResult) -> Event:
     return Event(kind="tool_result", run_id=run_id, payload=asdict(result))
+
+
+def run_finished_event(
+    run_id: str,
+    *,
+    refunds_issued: list[Any],
+    reason: str | None = None,
+) -> Event:
+    payload: dict[str, Any] = {"refunds_issued": refunds_issued}
+    if reason is not None:
+        payload["reason"] = reason
+    return Event(kind="run_finished", run_id=run_id, payload=payload)
