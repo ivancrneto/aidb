@@ -140,7 +140,7 @@ def _attach_loop(host: str, port: int, token: str) -> int:
         f"attached to {host}:{port}\n"
         "commands: halt | break-reply | clear-break-reply | break-handoff | "
         "clear-break-handoff | edit content=... | edit value={...} | "
-        "continue (cont/c) | end | status | inspect | quit\n"
+        "edit payload={...} | continue (cont/c) | end | status | inspect | quit\n"
     )
     sys.stdout.flush()
     while True:

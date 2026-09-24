@@ -78,13 +78,12 @@ class DebugSession:
         with self._lock:
             if self._ended.is_set():
                 return
-            # Snapshot edited (or original) payload for gate_after_event, then
-            # clear inspect state so status no longer shows a live stop.
+            # Snapshot only when there is an active stop. A redundant continue
+            # must not clobber a pending _resume_payload still awaiting
+            # gate_after_event.
             if self._stop is not None:
                 self._resume_payload = dict(self._stop["payload"])
                 self._stop = None
-            else:
-                self._resume_payload = None
             self._continue.set()
 
     def end(self) -> None:
@@ -108,12 +107,26 @@ class DebugSession:
             if self._stop is None or self._continue.is_set():
                 raise ValueError("edit requires a halted break stop")
             kind = self._stop["kind"]
-            current = dict(self._stop["payload"])
+            provided = [
+                name
+                for name, val in (
+                    ("payload", payload),
+                    ("content", content),
+                    ("value", value),
+                )
+                if val is not None
+            ]
+            if len(provided) > 1:
+                raise ValueError(
+                    f"edit accepts only one of content, value, payload (got {provided})"
+                )
             if payload is not None:
                 if not isinstance(payload, dict):
                     raise ValueError("payload must be an object")
+                self._validate_payload_shape(kind, payload)
                 self._stop["payload"] = dict(payload)
                 return
+            current = dict(self._stop["payload"])
             if content is not None:
                 if kind != "model_reply":
                     raise ValueError("content edit only applies to model_reply stops")
@@ -129,6 +142,19 @@ class DebugSession:
                 self._stop["payload"] = current
                 return
             raise ValueError("edit requires content, value, or payload")
+
+    @staticmethod
+    def _validate_payload_shape(kind: str, payload: dict[str, Any]) -> None:
+        if kind == "model_reply":
+            if not isinstance(payload.get("content"), str):
+                raise ValueError("model_reply payload must include string 'content'")
+            return
+        if kind == "handoff":
+            if not isinstance(payload.get("target"), str) or not payload.get("target"):
+                raise ValueError("handoff payload must include non-empty string 'target'")
+            if not isinstance(payload.get("value"), dict):
+                raise ValueError("handoff payload must include object 'value'")
+            return
 
     def gate_before_advance(self) -> None:
         """Block while halted. Raise SessionEnded if the session was ended."""
@@ -164,12 +190,12 @@ class DebugSession:
         if self._ended.is_set():
             raise SessionEnded("debug session ended")
         with self._lock:
-            if self._resume_payload is not None:
-                effective = dict(self._resume_payload)
-            elif self._stop is not None:
-                effective = dict(self._stop["payload"])
-            else:
-                effective = dict(payload)
+            # continue_run always snapshots into _resume_payload before waking us.
+            effective = (
+                dict(self._resume_payload)
+                if self._resume_payload is not None
+                else dict(payload)
+            )
             self._resume_payload = None
             self._stop = None
         return effective

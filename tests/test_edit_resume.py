@@ -243,3 +243,68 @@ def test_edit_over_tcp() -> None:
         assert handoff.payload["value"]["prior_reply"] == edited
     finally:
         server.stop()
+
+
+def test_redundant_continue_preserves_pending_edit() -> None:
+    """A second continue must not clobber a pending edited resume payload."""
+    session = DebugSession()
+    session.set_break("model_reply", enabled=True)
+    held = threading.Event()
+
+    def listener(event) -> None:
+        if event.kind == "model_reply" and event.payload.get("agent") == "intake":
+            held.set()
+
+    runtime = RefundDeskRuntime(debug=session, listener=listener)
+    result_box: list = []
+
+    def run() -> None:
+        result_box.append(
+            runtime.run("Please refund ORD-1001. The headphones arrived broken.")
+        )
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(timeout=2.0)
+    _wait_halted(session)
+
+    edited = "PRESERVED_AFTER_DOUBLE_CONTINUE"
+    session.edit(content=edited)
+    session.set_break("model_reply", enabled=False)
+    session.continue_run()
+    session.continue_run()  # redundant; must not drop _resume_payload
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    handoff = next(
+        e for e in result_box[0].of_kind("handoff") if e.payload.get("source") == "intake"
+    )
+    assert handoff.payload["value"]["prior_reply"] == edited
+
+
+def test_edit_rejects_multiple_fields() -> None:
+    session = DebugSession()
+    session.set_break("model_reply", enabled=True)
+    held = threading.Event()
+
+    def listener(event) -> None:
+        if event.kind == "model_reply" and event.payload.get("agent") == "intake":
+            held.set()
+
+    runtime = RefundDeskRuntime(debug=session, listener=listener)
+
+    def run() -> None:
+        runtime.run("Please refund ORD-1001. The headphones arrived broken.")
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(timeout=2.0)
+    _wait_halted(session)
+    try:
+        session.edit(content="x", payload={"content": "y", "agent": "intake", "turn": 1})
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "only one" in str(exc)
+    session.set_break("model_reply", enabled=False)
+    session.continue_run()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()

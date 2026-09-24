@@ -79,13 +79,14 @@ class RefundDeskRuntime:
                 raise RuntimeError("intake agent must hand off to policy")
 
             # Next step after a model reply consumes the (possibly edited) reply.
-            handoff = _handoff_with_prior_reply(intake.handoff, reply_payload["content"])
+            prior_reply = _reply_content(reply_payload)
+            handoff = _handoff_with_prior_reply(intake.handoff, prior_reply)
             handoff_payload = self._emit_advance(result, handoff_event(run_id, handoff))
 
             turn = 2
             policy = self.policy.act(
                 turn=turn,
-                handoff_value=handoff_payload["value"],
+                handoff_value=_handoff_value(handoff_payload),
                 order=order,
             )
             self._emit_advance(result, model_reply_event(run_id, policy.reply))
@@ -94,10 +95,8 @@ class RefundDeskRuntime:
                 tool_handoff_payload = self._emit_advance(
                     result, handoff_event(run_id, policy.handoff)
                 )
-                tool_result = self.tools.call(
-                    str(tool_handoff_payload["target"]),
-                    dict(tool_handoff_payload["value"]),
-                )
+                target, value = _handoff_target_value(tool_handoff_payload)
+                tool_result = self.tools.call(target, value)
                 self._emit(result, tool_result_event(run_id, tool_result))
                 turn = 3
                 closing = self.policy.after_tool(turn=turn, tool_value=tool_result.value)
@@ -157,3 +156,27 @@ def _handoff_with_prior_reply(handoff: Handoff, prior_reply: str) -> Handoff:
         handoff,
         value={**handoff.value, "prior_reply": prior_reply},
     )
+
+
+def _reply_content(payload: dict[str, Any]) -> str:
+    content = payload.get("content", "")
+    if not isinstance(content, str):
+        raise ValueError("model_reply payload must include string 'content'")
+    return content
+
+
+def _handoff_value(payload: dict[str, Any]) -> dict[str, Any]:
+    value = payload.get("value", {})
+    if not isinstance(value, dict):
+        raise ValueError("handoff payload must include object 'value'")
+    return dict(value)
+
+
+def _handoff_target_value(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    target = payload.get("target", "")
+    value = payload.get("value", {})
+    if not isinstance(target, str) or not target:
+        raise ValueError("handoff payload must include non-empty string 'target'")
+    if not isinstance(value, dict):
+        raise ValueError("handoff payload must include object 'value'")
+    return target, dict(value)
