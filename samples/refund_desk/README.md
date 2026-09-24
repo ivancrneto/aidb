@@ -62,3 +62,18 @@ python -m aidb inspect --port 8765 --token "$AIDB_CONTROL_TOKEN"
 python -m aidb continue --port 8765 --token "$AIDB_CONTROL_TOKEN"
 python -m aidb clear-break-handoff --port 8765 --token "$AIDB_CONTROL_TOKEN"
 ```
+
+## Edit and resume (TKT-C1)
+
+While held at a reply or handoff, edit the stopped value. The next step consumes the edit.
+
+```bash
+python -m aidb break-reply --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb edit --port 8765 --token "$AIDB_CONTROL_TOKEN" --content "Revised reply"
+python -m aidb continue --port 8765 --token "$AIDB_CONTROL_TOKEN"
+
+python -m aidb break-handoff --port 8765 --token "$AIDB_CONTROL_TOKEN"
+python -m aidb edit --port 8765 --token "$AIDB_CONTROL_TOKEN" \
+  --value-json '{"order_id":"ORD-1001","amount":"12.34"}'
+python -m aidb continue --port 8765 --token "$AIDB_CONTROL_TOKEN"
+```

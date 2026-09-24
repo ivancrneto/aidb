@@ -36,6 +36,7 @@ def test_happy_path_emits_model_reply_and_handoff() -> None:
             "item": "headphones",
             "reason": "damaged",
             "user_message": "Please refund ORD-1001. The headphones arrived broken.",
+            "prior_reply": replies[0].payload["content"],
         },
     }
     assert any(event.payload["kind"] == "tool" for event in handoffs)

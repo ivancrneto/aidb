@@ -14,12 +14,13 @@ class SessionEnded(Exception):
 
 
 class DebugSession:
-    """In-process halt / continue / end / break control for a live run.
+    """In-process halt / continue / end / break / edit control for a live run.
 
     Call ``gate_before_advance`` before emitting the next model reply or handoff.
     Call ``gate_after_event`` after emitting an event so break-on-reply or
-    break-on-handoff can hold with the value available for inspect. While
-    halted, those calls block so the run cannot advance.
+    break-on-handoff can hold with the value available for inspect/edit. While
+    halted, those calls block so the run cannot advance. After resume,
+    ``gate_after_event`` returns the (possibly edited) payload for the next step.
     """
 
     def __init__(self) -> None:
@@ -29,6 +30,7 @@ class DebugSession:
         self._lock = threading.Lock()
         self._breaks: set[BreakKind] = set()
         self._stop: dict[str, Any] | None = None
+        self._resume_payload: dict[str, Any] | None = None
 
     @property
     def state(self) -> SessionState:
@@ -76,14 +78,57 @@ class DebugSession:
         with self._lock:
             if self._ended.is_set():
                 return
-            self._stop = None
+            # Snapshot edited (or original) payload for gate_after_event, then
+            # clear inspect state so status no longer shows a live stop.
+            if self._stop is not None:
+                self._resume_payload = dict(self._stop["payload"])
+                self._stop = None
+            else:
+                self._resume_payload = None
             self._continue.set()
 
     def end(self) -> None:
         with self._lock:
             self._ended.set()
             self._stop = None
+            self._resume_payload = None
             self._continue.set()
+
+    def edit(
+        self,
+        *,
+        content: str | None = None,
+        value: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Update the stopped payload while halted at a break. Resume still required."""
+        with self._lock:
+            if self._ended.is_set():
+                raise ValueError("session ended")
+            if self._stop is None or self._continue.is_set():
+                raise ValueError("edit requires a halted break stop")
+            kind = self._stop["kind"]
+            current = dict(self._stop["payload"])
+            if payload is not None:
+                if not isinstance(payload, dict):
+                    raise ValueError("payload must be an object")
+                self._stop["payload"] = dict(payload)
+                return
+            if content is not None:
+                if kind != "model_reply":
+                    raise ValueError("content edit only applies to model_reply stops")
+                current["content"] = str(content)
+                self._stop["payload"] = current
+                return
+            if value is not None:
+                if kind != "handoff":
+                    raise ValueError("value edit only applies to handoff stops")
+                if not isinstance(value, dict):
+                    raise ValueError("value must be an object")
+                current["value"] = dict(value)
+                self._stop["payload"] = current
+                return
+            raise ValueError("edit requires content, value, or payload")
 
     def gate_before_advance(self) -> None:
         """Block while halted. Raise SessionEnded if the session was ended."""
@@ -97,18 +142,18 @@ class DebugSession:
         *,
         run_id: str,
         payload: dict[str, Any],
-    ) -> None:
-        """If a break is armed for ``kind``, hold after the event for inspect.
+    ) -> dict[str, Any]:
+        """If a break is armed for ``kind``, hold after the event for inspect/edit.
 
-        Payload (model reply or handoff value) is retained in-process for inspect.
+        Returns the payload the next step should consume (original or edited).
         The control plane only exposes it over localhost with a shared token.
         """
         normalized = str(kind or "").strip().lower()
         with self._lock:
             if self._ended.is_set():
-                return
+                return dict(payload)
             if normalized not in self._breaks:
-                return
+                return dict(payload)
             self._stop = {
                 "kind": normalized,
                 "run_id": run_id,
@@ -118,3 +163,13 @@ class DebugSession:
         self._continue.wait()
         if self._ended.is_set():
             raise SessionEnded("debug session ended")
+        with self._lock:
+            if self._resume_payload is not None:
+                effective = dict(self._resume_payload)
+            elif self._stop is not None:
+                effective = dict(self._stop["payload"])
+            else:
+                effective = dict(payload)
+            self._resume_payload = None
+            self._stop = None
+        return effective

@@ -43,10 +43,12 @@ class PolicyAgent:
 
     def act(self, *, turn: int, handoff_value: dict[str, Any], order: Order) -> Decision:
         reason = str(handoff_value.get("reason") or "unspecified")
+        prior = handoff_value.get("prior_reply")
+        prior_bit = f" Prior reply: {prior}." if prior else ""
         if order.within_window:
             content = (
                 f"{order.order_id} is {order.age_days} days old and the item is {order.item}. "
-                f"Reason: {reason}. Policy allows a full refund of ${order.amount}. "
+                f"Reason: {reason}.{prior_bit} Policy allows a full refund of ${order.amount}. "
                 "I will hand this to the issue_refund tool."
             )
             return Decision(
@@ -60,7 +62,7 @@ class PolicyAgent:
             )
         content = (
             f"{order.order_id} is {order.age_days} days old, outside the "
-            f"{order.window_days}-day window. Reason: {reason}. Refund denied."
+            f"{order.window_days}-day window. Reason: {reason}.{prior_bit} Refund denied."
         )
         return Decision(
             reply=ModelReply(agent=self.name, content=content, turn=turn),

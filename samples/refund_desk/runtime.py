@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable
 from uuid import uuid4
 
 from aidb.session import DebugSession, SessionEnded
 from samples.refund_desk.agents import IntakeAgent, PolicyAgent, resolve_order
 from samples.refund_desk.events import (
     Event,
+    Handoff,
     handoff_event,
     model_reply_event,
     run_finished_event,
@@ -71,18 +72,32 @@ class RefundDeskRuntime:
         try:
             turn = 1
             intake = self.intake.act(turn=turn, user_message=user_message, order=order)
-            self._emit_advance(result, model_reply_event(run_id, intake.reply))
+            reply_payload = self._emit_advance(
+                result, model_reply_event(run_id, intake.reply)
+            )
             if intake.handoff is None:
                 raise RuntimeError("intake agent must hand off to policy")
-            self._emit_advance(result, handoff_event(run_id, intake.handoff))
+
+            # Next step after a model reply consumes the (possibly edited) reply.
+            handoff = _handoff_with_prior_reply(intake.handoff, reply_payload["content"])
+            handoff_payload = self._emit_advance(result, handoff_event(run_id, handoff))
 
             turn = 2
-            policy = self.policy.act(turn=turn, handoff_value=intake.handoff.value, order=order)
+            policy = self.policy.act(
+                turn=turn,
+                handoff_value=handoff_payload["value"],
+                order=order,
+            )
             self._emit_advance(result, model_reply_event(run_id, policy.reply))
 
             if policy.handoff is not None:
-                self._emit_advance(result, handoff_event(run_id, policy.handoff))
-                tool_result = self.tools.call(policy.handoff.target, policy.handoff.value)
+                tool_handoff_payload = self._emit_advance(
+                    result, handoff_event(run_id, policy.handoff)
+                )
+                tool_result = self.tools.call(
+                    str(tool_handoff_payload["target"]),
+                    dict(tool_handoff_payload["value"]),
+                )
                 self._emit(result, tool_result_event(run_id, tool_result))
                 turn = 3
                 closing = self.policy.after_tool(turn=turn, tool_value=tool_result.value)
@@ -110,20 +125,35 @@ class RefundDeskRuntime:
         result.refunds_issued = list(self.tools.ledger.issued)
         return result
 
-    def _emit_advance(self, result: RunResult, event: Event) -> None:
+    def _emit_advance(self, result: RunResult, event: Event) -> dict[str, Any]:
         if self.debug is not None:
             self.debug.gate_before_advance()
         self._emit(result, event)
+        effective = dict(event.payload)
         if self.debug is not None:
-            self.debug.gate_after_event(
+            effective = self.debug.gate_after_event(
                 event.kind,
                 run_id=event.run_id,
                 payload=event.payload,
             )
+            if effective != event.payload:
+                result.events[-1] = Event(
+                    kind=event.kind,
+                    run_id=event.run_id,
+                    payload=effective,
+                )
         if self.pace_seconds > 0:
             time.sleep(self.pace_seconds)
+        return effective
 
     def _emit(self, result: RunResult, event: Event) -> None:
         result.events.append(event)
         if self.listener is not None:
             self.listener(event)
+
+
+def _handoff_with_prior_reply(handoff: Handoff, prior_reply: str) -> Handoff:
+    return replace(
+        handoff,
+        value={**handoff.value, "prior_reply": prior_reply},
+    )

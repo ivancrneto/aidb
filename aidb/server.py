@@ -68,6 +68,18 @@ def handle_command(
             session.set_break(on, enabled=enabled)
         except ValueError as exc:
             return {"ok": False, "error": str(exc), "state": session.state}
+    elif op == "edit":
+        kwargs: dict = {}
+        if "payload" in request:
+            kwargs["payload"] = request.get("payload")
+        if "content" in request:
+            kwargs["content"] = request.get("content")
+        if "value" in request:
+            kwargs["value"] = request.get("value")
+        try:
+            session.edit(**kwargs)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "state": session.state}
     else:
         return {"ok": False, "error": f"unknown op: {op}", "state": session.state}
     return _status_payload(session)

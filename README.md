@@ -19,13 +19,13 @@ Do not expose the control port on a public interface.
 python -m samples.refund_desk
 ```
 
-### Attach, halt, stop after a model reply, or stop on a handoff
+### Attach, halt, edit, and resume
 
 ```bash
 python -m samples.refund_desk --debug-port 8765 --pace 2
 # stderr prints port + token
-python -m aidb break-handoff --port 8765 --token "$TOKEN"
-python -m aidb status --port 8765 --token "$TOKEN"   # includes stop.payload when held
+python -m aidb break-reply --port 8765 --token "$TOKEN"
+python -m aidb edit --port 8765 --token "$TOKEN" --content "Revised intake reply"
 python -m aidb continue --port 8765 --token "$TOKEN"
 ```
 

@@ -37,24 +37,47 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m aidb",
         description=(
             "Attach to a live aidb debug control port (localhost) and halt, "
-            "break after model replies or handoffs, continue, or end the run."
+            "break, edit, continue, or end the run."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (
-        ("attach", "Interactive halt/break-reply/break-handoff/continue/end loop"),
+        ("attach", "Interactive halt/break/edit/continue/end loop"),
         ("halt", "Halt the live run at the next controlled stop"),
         ("break-reply", "Stop after each model reply so the reply can be inspected"),
         ("clear-break-reply", "Disable stop-after model reply breaks"),
         ("break-handoff", "Stop on each tool or agent handoff for inspect"),
         ("clear-break-handoff", "Disable stop-on handoff breaks"),
-        ("continue", "Continue a halted run (without editing the stopped value)"),
+        ("continue", "Continue a halted run"),
         ("end", "End the debug session and stop the run"),
         ("status", "Print session state, breaks, and stopped value if any"),
         ("inspect", "Alias for status (shows stopped reply or handoff when held)"),
     ):
         command = sub.add_parser(name, help=help_text)
         _add_connection_flags(command)
+
+    edit = sub.add_parser(
+        "edit",
+        help="Edit the stopped model reply content or handoff value, then continue separately",
+    )
+    _add_connection_flags(edit)
+    edit.add_argument(
+        "--content",
+        default=None,
+        help="Replacement model reply content (model_reply stops only)",
+    )
+    edit.add_argument(
+        "--value-json",
+        default=None,
+        metavar="JSON",
+        help='Replacement handoff value JSON object, e.g. \'{"order_id":"ORD-1001"}\'',
+    )
+    edit.add_argument(
+        "--payload-json",
+        default=None,
+        metavar="JSON",
+        help="Full replacement stop payload JSON object",
+    )
     return parser
 
 
@@ -84,11 +107,40 @@ def _command_to_op(command: str) -> tuple[str, dict]:
     return command, {}
 
 
+def _parse_edit_line(line: str) -> dict | None:
+    """Parse attach-loop edit forms: edit content=... | edit value={...} | edit payload={...}."""
+    rest = line[len("edit") :].strip()
+    if not rest:
+        return None
+    if rest.startswith("content="):
+        return {"content": rest[len("content=") :]}
+    if rest.startswith("value="):
+        raw = rest[len("value=") :]
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(value, dict):
+            return None
+        return {"value": value}
+    if rest.startswith("payload="):
+        raw = rest[len("payload=") :]
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return {"payload": payload}
+    return None
+
+
 def _attach_loop(host: str, port: int, token: str) -> int:
     sys.stdout.write(
         f"attached to {host}:{port}\n"
         "commands: halt | break-reply | clear-break-reply | break-handoff | "
-        "clear-break-handoff | continue (cont/c) | end | status | inspect | quit\n"
+        "clear-break-handoff | edit content=... | edit value={...} | "
+        "continue (cont/c) | end | status | inspect | quit\n"
     )
     sys.stdout.flush()
     while True:
@@ -101,7 +153,15 @@ def _attach_loop(host: str, port: int, token: str) -> int:
             continue
         if line in {"quit", "exit", "q"}:
             return 0
-        if line in {"continue", "cont", "c"}:
+        if line.startswith("edit"):
+            fields = _parse_edit_line(line)
+            if fields is None:
+                sys.stdout.write(
+                    "usage: edit content=... | edit value={...} | edit payload={...}\n"
+                )
+                continue
+            op = "edit"
+        elif line in {"continue", "cont", "c"}:
             op, fields = "continue", {}
         elif line in {"break-reply", "break"}:
             op, fields = _command_to_op("break-reply")
@@ -138,7 +198,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "attach":
         return _attach_loop(args.host, args.port, args.token)
 
-    op, fields = _command_to_op(args.command)
+    if args.command == "edit":
+        fields: dict = {}
+        if args.content is not None:
+            fields["content"] = args.content
+        if args.value_json is not None:
+            try:
+                value = json.loads(args.value_json)
+            except json.JSONDecodeError as exc:
+                sys.stdout.write(f"error: invalid --value-json: {exc}\n")
+                return 1
+            if not isinstance(value, dict):
+                sys.stdout.write("error: --value-json must be a JSON object\n")
+                return 1
+            fields["value"] = value
+        if args.payload_json is not None:
+            try:
+                payload = json.loads(args.payload_json)
+            except json.JSONDecodeError as exc:
+                sys.stdout.write(f"error: invalid --payload-json: {exc}\n")
+                return 1
+            if not isinstance(payload, dict):
+                sys.stdout.write("error: --payload-json must be a JSON object\n")
+                return 1
+            fields["payload"] = payload
+        if not fields:
+            sys.stdout.write(
+                "error: edit requires --content, --value-json, and/or --payload-json\n"
+            )
+            return 1
+        op = "edit"
+    else:
+        op, fields = _command_to_op(args.command)
 
     try:
         response = _dispatch(op, args.host, args.port, args.token, **fields)
