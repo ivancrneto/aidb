@@ -124,7 +124,8 @@ class DebugSession:
                 if not isinstance(payload, dict):
                     raise ValueError("payload must be an object")
                 self._validate_payload_shape(kind, payload)
-                self._stop["payload"] = dict(payload)
+                # Merge so agent/turn/kind/source and other fields are preserved.
+                self._stop["payload"] = {**self._stop["payload"], **payload}
                 return
             current = dict(self._stop["payload"])
             if content is not None:

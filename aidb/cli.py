@@ -153,7 +153,7 @@ def _attach_loop(host: str, port: int, token: str) -> int:
             continue
         if line in {"quit", "exit", "q"}:
             return 0
-        if line.startswith("edit"):
+        if line == "edit" or line.startswith("edit "):
             fields = _parse_edit_line(line)
             if fields is None:
                 sys.stdout.write(

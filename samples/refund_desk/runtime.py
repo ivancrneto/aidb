@@ -127,6 +127,8 @@ class RefundDeskRuntime:
     def _emit_advance(self, result: RunResult, event: Event) -> dict[str, Any]:
         if self.debug is not None:
             self.debug.gate_before_advance()
+        # Notify with the pre-edit event so listeners (stdout stream) see the
+        # value while halted at a break; re-notify below if debug edits it.
         self._emit(result, event)
         effective = dict(event.payload)
         if self.debug is not None:
@@ -136,15 +138,17 @@ class RefundDeskRuntime:
                 payload=event.payload,
             )
             if effective != event.payload:
-                result.events[-1] = Event(
+                patched = Event(
                     kind=event.kind,
                     run_id=event.run_id,
                     payload=effective,
                 )
+                result.events[-1] = patched
+                if self.listener is not None:
+                    self.listener(patched)
         if self.pace_seconds > 0:
             time.sleep(self.pace_seconds)
         return effective
-
     def _emit(self, result: RunResult, event: Event) -> None:
         result.events.append(event)
         if self.listener is not None:

@@ -44,7 +44,7 @@ class PolicyAgent:
     def act(self, *, turn: int, handoff_value: dict[str, Any], order: Order) -> Decision:
         reason = str(handoff_value.get("reason") or "unspecified")
         prior = handoff_value.get("prior_reply")
-        prior_bit = f" Prior reply: {prior}." if prior else ""
+        prior_bit = f" Prior reply: {prior}." if prior is not None else ""
         if order.within_window:
             content = (
                 f"{order.order_id} is {order.age_days} days old and the item is {order.item}. "

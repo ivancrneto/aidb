@@ -308,3 +308,78 @@ def test_edit_rejects_multiple_fields() -> None:
     session.continue_run()
     thread.join(timeout=2.0)
     assert not thread.is_alive()
+
+
+def test_listener_renotified_with_edited_payload() -> None:
+    session = DebugSession()
+    session.set_break("model_reply", enabled=True)
+    seen: list[str] = []
+    held = threading.Event()
+
+    def listener(event) -> None:
+        if event.kind == "model_reply" and event.payload.get("agent") == "intake":
+            seen.append(event.payload["content"])
+            held.set()
+
+    runtime = RefundDeskRuntime(debug=session, listener=listener)
+    result_box: list = []
+
+    def run() -> None:
+        result_box.append(
+            runtime.run("Please refund ORD-1001. The headphones arrived broken.")
+        )
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(timeout=2.0)
+    _wait_halted(session)
+    original = seen[0]
+    edited = "LISTENER_SEES_EDIT"
+    session.edit(content=edited)
+    session.set_break("model_reply", enabled=False)
+    session.continue_run()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert seen == [original, edited]
+    intake = next(
+        e for e in result_box[0].of_kind("model_reply") if e.payload.get("agent") == "intake"
+    )
+    assert intake.payload["content"] == edited
+    assert intake.payload.get("agent") == "intake"
+
+
+def test_payload_edit_merges_existing_fields() -> None:
+    session = DebugSession()
+    session.set_break("model_reply", enabled=True)
+    held = threading.Event()
+
+    def listener(event) -> None:
+        if event.kind == "model_reply" and event.payload.get("agent") == "intake":
+            held.set()
+
+    runtime = RefundDeskRuntime(debug=session, listener=listener)
+    result_box: list = []
+
+    def run() -> None:
+        result_box.append(
+            runtime.run("Please refund ORD-1001. The headphones arrived broken.")
+        )
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(timeout=2.0)
+    _wait_halted(session)
+    session.edit(payload={"content": "MERGED_EDIT"})
+    assert session.stop is not None
+    assert session.stop["payload"]["content"] == "MERGED_EDIT"
+    assert session.stop["payload"]["agent"] == "intake"
+    assert session.stop["payload"]["turn"] == 1
+    session.set_break("model_reply", enabled=False)
+    session.continue_run()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    intake = next(
+        e for e in result_box[0].of_kind("model_reply") if e.payload.get("agent") == "intake"
+    )
+    assert intake.payload["agent"] == "intake"
+    assert intake.payload["content"] == "MERGED_EDIT"
